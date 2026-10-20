@@ -14,9 +14,9 @@ error) es código determinista.
 ## Arquitectura
 
 ```mermaid
-flowchart LR
-    U([Usuario]) --> CLI["CLI de chat<br/>app/cli.py"]
-    CLI --> G{"Filtro de entrada<br/>guard.py"}
+flowchart TB
+    U([Usuario]) --> UI["Interfaz web o CLI<br/>app/web.py, app/cli.py"]
+    UI --> G{"Filtro de entrada<br/>guard.py"}
     G -- "sospechoso" --> REF["Rechazo fijo<br/>sin llamar al LLM"]
     G -- "ok" --> AG["Agente (bucle)<br/>agent.py"]
     AG <--> LLM["LLMClient<br/>OpenAI, Ollama o Mock"]
@@ -45,6 +45,7 @@ Más esquemas (flujo de una acción, estados de una acción pendiente, capas de 
 | LLM | `app/llm.py`, `app/mock_llm.py` | Interfaz `LLMClient`; OpenAI/compatible, `MockLLM` y un modelo "comprometido" para pruebas |
 | Seguridad | `app/guard.py`, `app/grounding.py` | Filtro de entrada; comprobación de identificadores inventados |
 | Trazabilidad | `app/audit.py` | Un registro JSON por ejecución y por confirmación |
+| Interfaz web | `app/web.py`, `app/static/` | Chat con tarjeta de confirmación, traza y panel de fallos. Capa fina sobre el mismo agente que el CLI: sin lógica propia |
 | Servicios simulados | `app/mock_services/` | FastAPI (expedientes, talleres, acciones) + SQLite, con fallos inyectables |
 
 ## Tecnologías
@@ -116,15 +117,28 @@ pip install -r requirements.txt
 
 Si PowerShell no deja activar el entorno, usa directamente `.\.venv\Scripts\python.exe` en lugar de `python`.
 
-### Sin clave de API (modo mock)
+### La forma más fácil: interfaz web, sin clave de API
 
 ```bash
-python -m pytest                       # 71 pruebas; no necesitan clave ni red
+python -m app.web --llm mock
+```
+
+Abre <http://127.0.0.1:8000>. Un solo comando: arranca también los servicios simulados. La página tiene un selector de
+usuario (`ana` puede modificar, `luis` solo consulta), botones con un ejemplo de cada caso, una tarjeta de **Confirmar /
+Cancelar** para las acciones, un enlace **Ver traza** en cada respuesta y un **panel de demostración** para provocar
+fallos (talleres caídos, servicio lento, "la acción se ejecuta pero se pierde la respuesta"...) sin tocar la terminal.
+
+Para usar un LLM real en lugar del simulado (necesita `.env`, ver abajo): `python -m app.web`.
+
+### Por línea de comandos, sin clave de API (modo mock)
+
+```bash
+python -m pytest                       # 91 pruebas; no necesitan clave ni red
 python -m app.mock_services            # terminal 1: servicios simulados (se queda en ejecución)
 python -m app.cli --llm mock           # terminal 2: caso 2, con confirmación
 ```
 
-### Con un LLM real
+### Por línea de comandos, con un LLM real
 
 Copia `.env.example` a `.env` y rellena `LLM_API_KEY` y `LLM_MODEL` (con `python learning/list_models.py` ves los modelos
 de tu cuenta; hace falta uno con *tool calling*). Después, con los servicios simulados en marcha:
@@ -193,9 +207,9 @@ se deduce de las tools usadas, no se pregunta al LLM. Los resultados de las tool
 
 ## Tests
 
-`python -m pytest`: 71 pruebas, unos 30 s. Levantan el servidor FastAPI de verdad en un hilo (con base de datos y traza
+`python -m pytest`: 91 pruebas, menos de un minuto. Levantan el servidor FastAPI de verdad en un hilo (con base de datos y traza
 temporales) y usan LLMs simulados, así que no necesitan clave ni red. Un archivo por caso (`tests/test_case1_query.py` …
-`test_case4_security.py`) más `tests/test_guard.py`. Los fallos se provocan con el protocolo HTTP real (500, lentitud,
+`test_case4_security.py`) más `tests/test_guard.py` y `tests/test_web.py` (la interfaz web). Los fallos se provocan con el protocolo HTTP real (500, lentitud,
 respuesta perdida), no con mocks de Python.
 
 No miden la **calidad** de un LLM real: eso requeriría una evaluación aparte (ver Producción).
@@ -205,7 +219,11 @@ No miden la **calidad** de un LLM real: eso requeriría una evaluación aparte (
 - **Estado en memoria.** Las acciones pendientes viven en un diccionario del proceso: se pierden al reiniciar y la
   transición `PENDING → EXECUTING` no es atómica entre varios procesos.
 - **Sin memoria de conversación.** Cada pregunta se resuelve de forma independiente; no hay diálogo de varios turnos.
-- **Identidad simulada.** El usuario se elige con `--user`. En producción vendría de un token validado.
+- **Identidad simulada.** El usuario se elige con `--user` o en el selector de la web. En producción vendría de un token
+  validado en el servidor. La web no tiene autenticación y por defecto solo escucha en `127.0.0.1`.
+- **La web atiende de una en una.** Un cerrojo serializa las peticiones porque el estado (acciones pendientes) está en
+  memoria. El panel de demostración, que permite romper los servicios simulados, es solo para pruebas
+  (`--no-demo-controls` lo oculta).
 - **Una sola acción.** Solo existe `REQUEST_DOCUMENT`. Pedir un reemplazo o borrar un documento no se implementa a
   propósito: el enunciado exige comprobar que el documento *falta* antes de pedirlo, y borrar es destructivo. Se añadiría
   como una acción nueva `REQUEST_REPLACEMENT` (la anterior se mantiene hasta que llegue la nueva) y, si hiciera falta
@@ -243,8 +261,9 @@ No miden la **calidad** de un LLM real: eso requeriría una evaluación aparte (
   si hubiera requisitos de privacidad o de coste.
 - **Respuestas:** generarlas desde plantillas en las partes críticas, o añadir un verificador semántico que contraste la
   respuesta con lo devuelto por las tools.
-- **Producto:** API web con autenticación y un canal de confirmación real (no `input()`), conversación de varios turnos,
-  contenedores y despliegue.
+- **Producto:** autenticación real en la API web (la interfaz actual es una demostración), confirmaciones por un canal
+  autenticado y con registro, conversación de varios turnos con memoria, varios procesos tras un balanceador (de ahí el
+  estado en base de datos), contenedores y despliegue.
 
 ## Uso de asistentes de IA
 
@@ -258,9 +277,11 @@ la comprobación de salida.
 
 ```
 app/                    solución
-  agent.py  tools.py  actions.py  services.py  llm.py  mock_llm.py  guard.py  grounding.py  audit.py  auth.py  config.py  cli.py
+  agent.py  tools.py  actions.py  services.py  llm.py  mock_llm.py  guard.py  grounding.py  audit.py  auth.py  config.py
+  cli.py  web.py  bootstrap.py   puntos de entrada (consola y web) y montaje común
+  static/               página de la interfaz web (HTML, CSS y JS sin dependencias)
   mock_services/        servicios simulados (FastAPI + SQLite) y faultctl
-tests/                  71 pruebas, un archivo por caso
+tests/                  91 pruebas, un archivo por caso
 docs/                   arquitectura.md (esquemas)
 learning/               scripts de aprendizaje paso a paso (no forman parte de la solución)
 .env.example            plantilla de configuración (el .env real no se sube)

@@ -7,19 +7,10 @@ import argparse
 
 import httpx
 
-from app.actions import ActionManager
 from app.agent import Agent
-from app.audit import TraceWriter
 from app.auth import USERS, User
-from app.config import Settings, load_settings
-from app.llm import LLMClient, OpenAICompatibleLLM
-from app.mock_llm import JailbrokenMockLLM, MockLLM
-from app.services import Services
-
-
-def build_agent(settings: Settings, llm: LLMClient) -> Agent:
-    services = Services(settings)
-    return Agent(llm, services, ActionManager(services, settings), TraceWriter(settings.trace_path), settings)
+from app.bootstrap import LLM_HELP, LLM_KINDS, build_agent, make_llm
+from app.config import load_settings
 
 
 def ask_confirmation(agent: Agent, user: User, pending_id: str) -> None:
@@ -51,23 +42,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("question", nargs="?", default="Pide al taller la foto de matrícula que falta del expediente EXP-10234.")
     parser.add_argument("--user", choices=sorted(USERS), default="ana")
-    parser.add_argument(
-        "--llm", choices=["openai", "mock", "jailbroken"], default="openai",
-        help="openai = LLM real configurado en .env | mock = simulado, sin clave | "
-             "jailbroken = modelo simulado comprometido que intenta atacar (caso 4)",
-    )
+    parser.add_argument("--llm", choices=LLM_KINDS, default="openai", help=LLM_HELP)
     args = parser.parse_args()
 
     settings = load_settings()
-    if args.llm == "mock":
-        llm: LLMClient = MockLLM()
-    elif args.llm == "jailbroken":
-        llm = JailbrokenMockLLM()
-    else:
-        bad = lambda v: not v or v.startswith("pon-aqui")  # noqa: E731
-        if bad(settings.llm_model) or bad(settings.llm_api_key):
-            raise SystemExit("Configura LLM_API_KEY y LLM_MODEL en .env (mira .env.example), o usa --llm mock para probar sin clave.")
-        llm = OpenAICompatibleLLM(settings.llm_api_key, settings.llm_model, settings.llm_base_url)
+    llm = make_llm(args.llm, settings)
     try:
         httpx.get(f"{settings.services_base_url}/health", timeout=1.5).raise_for_status()
     except httpx.HTTPError:

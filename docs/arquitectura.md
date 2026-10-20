@@ -7,9 +7,9 @@ ejecución, reintentos, avisos) es código determinista.
 ## Componentes
 
 ```mermaid
-flowchart LR
-    U([Usuario]) --> CLI["CLI de chat<br/>app/cli.py"]
-    CLI --> G{"Filtro de entrada<br/>guard.py"}
+flowchart TB
+    U([Usuario]) --> UI["Interfaz web o CLI<br/>app/web.py, app/cli.py"]
+    UI --> G{"Filtro de entrada<br/>guard.py"}
     G -- "sospechoso" --> REF["Rechazo fijo<br/>sin llamar al LLM"]
     G -- "ok" --> AG["Agente (bucle)<br/>agent.py"]
     AG <--> LLM["LLMClient<br/>OpenAI, Ollama o Mock"]

@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Agente de expedientes</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Agente de expedientes</h1>
+      <p class="sub">Prueba técnica OKORE · Data &amp; Agentic AI</p>
+    </div>
+    <div class="controls">
+      <label>Usuario
+        <select id="user"></select>
+      </label>
+      <span class="badge" id="badge-llm"></span>
+      <span class="badge" id="badge-guard"></span>
+    </div>
+  </header>
+
+  <main>
+    <section id="chat" class="chat" aria-live="polite"></section>
+
+    <section class="examples" aria-label="Ejemplos">
+      <span class="examples-title">Probar:</span>
+      <span id="examples"></span>
+    </section>
+
+    <form id="form" autocomplete="off">
+      <input id="input" type="text" maxlength="4000" placeholder="Escribe tu petición sobre un expediente…" aria-label="Mensaje" required>
+      <button id="send" type="submit">Enviar</button>
+    </form>
+
+    <details id="demo" hidden>
+      <summary>Panel de demostración · provocar fallos en los servicios simulados</summary>
+      <div id="demo-buttons" class="demo-buttons"></div>
+      <p id="demo-status" class="demo-status"></p>
+    </details>
+  </main>
+
+  <script src="/static/app.js" defer></script>
+</body>
+</html>
