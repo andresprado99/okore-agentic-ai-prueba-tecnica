@@ -1,0 +1,15 @@
+.venv/
+.env
+__pycache__/
+*.pyc
+logs/
+data/
+*.sqlite
+*.db
+.pytest_cache/
+
+# Enunciado de la prueba (documento de OKORE): no se publica
+Prueba_Tecnica_OKORE*.pdf
+
+# Notas personales de estudio: no se publican
+docs/decisiones.md

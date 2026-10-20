@@ -1,0 +1,7 @@
+openai
+python-dotenv
+pydantic
+fastapi
+uvicorn
+httpx
+pytest
