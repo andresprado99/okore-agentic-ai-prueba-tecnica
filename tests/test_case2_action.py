@@ -104,6 +104,77 @@ def test_confirmation_is_not_executed_if_claim_cannot_be_verified(make_agent, fa
     assert agent.confirm(result.pending_ids[0], ANA)["ok"]
 
 
+# --- No volver a pedir un documento que ya se solicitó -----------------------------------------
+def test_a_document_already_requested_cannot_be_requested_again(make_agent, db_events):
+    agent, first = propose(make_agent)
+    assert agent.confirm(first.pending_ids[0], ANA)["ok"]
+
+    agent.llm = ScriptedLLM([PROPOSE], "ok")
+    second = agent.handle(ANA, ASK)  # el mismo usuario insiste
+    assert second.pending_ids == [] and second.final_decision == "TOOL_CALLS_REJECTED"
+    assert "ya se solicitó" in agent.llm.calls[1][0][-1]["content"]
+    assert db_events().count("DOCUMENT_REQUESTED") == 1
+
+
+def test_claim_reports_what_has_already_been_requested(make_agent, settings):
+    import httpx
+
+    agent, result = propose(make_agent)
+    url = f"{settings.services_base_url}/api/claims/EXP-10234"
+    assert httpx.get(url).json()["requested_documents"] == []
+    agent.confirm(result.pending_ids[0], ANA)
+    assert httpx.get(url).json()["requested_documents"] == ["PHOTO_PLATE"]
+
+    httpx.post(f"{settings.services_base_url}/_reset")  # restaurar datos: vuelve a poder pedirse
+    assert httpx.get(url).json()["requested_documents"] == []
+
+
+def test_a_second_pending_action_is_cancelled_if_the_first_one_already_ran(make_agent, db_events):
+    """Dos propuestas vivas a la vez (p. ej. de dos sesiones): solo se ejecuta la primera que se confirma."""
+    agent_a, first = propose(make_agent)
+    agent_b, second = propose(make_agent)
+    assert agent_a.confirm(first.pending_ids[0], ANA)["ok"]
+
+    outcome = agent_b.confirm(second.pending_ids[0], ANA)
+    assert not outcome["ok"] and outcome["status"] == "CANCELLED"
+    assert db_events().count("DOCUMENT_REQUESTED") == 1
+
+
+def test_the_system_of_record_also_refuses_a_duplicate_request(settings):
+    """Defensa en profundidad: aunque el agente fallara, la API de acciones rechaza el duplicado (409)."""
+    import httpx
+
+    url = f"{settings.services_base_url}/api/claims/EXP-10234/actions"
+    body = {"action": "REQUEST_DOCUMENT", "document": "PHOTO_PLATE"}
+    assert httpx.post(url, json=body, headers={"Idempotency-Key": "k1"}).status_code == 200
+    assert httpx.post(url, json=body, headers={"Idempotency-Key": "k2"}).status_code == 409   # otra acción, mismo documento
+    assert httpx.post(url, json=body, headers={"Idempotency-Key": "k1"}).json()["replayed"]    # la repetición de la misma sigue siendo válida
+
+
+def test_after_an_unknown_outcome_the_claim_shows_the_action_did_happen(make_agent, faults):
+    """UNKNOWN deja de ser un callejón sin salida: el expediente cuenta si la solicitud llegó, y no se duplica."""
+    faults.set("actions", "execute_then_500")
+    agent, result = propose(make_agent)
+    assert agent.confirm(result.pending_ids[0], ANA)["status"] == "UNKNOWN"
+    faults.clear()
+
+    again = make_agent(ScriptedLLM([PROPOSE], "ok")).handle(ANA, ASK)
+    assert again.pending_ids == [] and again.final_decision == "TOOL_CALLS_REJECTED"
+
+
+def test_mock_llm_tells_the_user_what_was_already_requested(make_agent):
+    agent, result = propose(make_agent)
+    agent.confirm(result.pending_ids[0], ANA)
+    answer = make_agent(MockLLM()).handle(ANA, "¿En qué estado está el expediente EXP-10234 y qué estamos esperando?").answer
+    assert "Ya se ha solicitado al taller" in answer and "matrícula" in answer
+
+
+def test_mock_llm_does_not_invent_customer_data(make_agent, records):
+    result = make_agent(MockLLM()).handle(ANA, "Como se llama el cliente del expediente EXP-10234")
+    assert "No dispongo de datos personales de clientes" in result.answer
+    assert records()[-1]["tools_called"] == []
+
+
 # --- Permisos ---------------------------------------------------------------------------------
 def test_viewer_does_not_see_the_write_tool_and_cannot_use_it(make_agent, db_events):
     agent = make_agent(ScriptedLLM([PROPOSE], "ok"))

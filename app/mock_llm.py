@@ -49,6 +49,10 @@ class MockLLM:
 
         wants_action = bool(re.search(r"\b(pide|pedir|pidele|solicita\w*|reclama\w*)\b", q))
         if not results:  # primera vuelta: decidir qué herramientas hacen falta
+            if re.search(r"\b(cliente|asegurado|propietario|conductor|titular)\b", q) and re.search(
+                    r"\b(nombre|llama|dni|nif|telefono|direccion|email|correo|datos)\b", q):
+                return LLMReply("No dispongo de datos personales de clientes: los expedientes solo contienen el vehículo, el taller, "
+                                "los documentos pendientes y su histórico. Si quieres, te informo del estado de un expediente concreto.")
             if claim_id is None:
                 return LLMReply("Indícame el identificador del expediente (por ejemplo, EXP-12345).")
             if wants_action:
@@ -84,8 +88,10 @@ class MockLLM:
                              "el sistema le pedirá su confirmación a continuación.")
             elif name == "get_claim" and not pending:
                 missing = ", ".join(DOC_ES.get(d, d) for d in r["missing_documents"])
+                requested = ", ".join(DOC_ES.get(d, d) for d in r.get("requested_documents", []))
                 lines.append(f"El expediente {r['claim_id']} está {STATUS_ES.get(r['status'], r['status'])}. "
-                             + (f"Estamos esperando: {missing}." if missing else "No falta ningún documento."))
+                             + (f"Estamos esperando: {missing}." if missing else "No falta ningún documento.")
+                             + (f" Ya se ha solicitado al taller: {requested} (pendiente de recibir)." if requested else ""))
             elif name == "get_claim_events":
                 events = "\n".join(f"- {e['event_date']}: {e['description']}" for e in r["events"]) or "- (sin eventos)"
                 lines.append(f"Histórico del expediente {r['claim_id']}:\n{events}")

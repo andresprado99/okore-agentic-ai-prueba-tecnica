@@ -31,6 +31,23 @@ def test_page_and_static_files_are_served_with_a_strict_csp(client):
     assert client.get("/docs").status_code == 404  # sin documentación interactiva expuesta
 
 
+def test_browser_must_revalidate_page_and_assets(client):
+    """Evita que un navegador mezcle un index.html nuevo con un app.js antiguo (error real en una prueba manual)."""
+    for path in ("/", "/static/app.js", "/static/style.css", "/api/config"):
+        assert client.get(path).headers["cache-control"] == "no-cache", path
+    etag = client.get("/static/app.js").headers["etag"]
+    assert client.get("/static/app.js", headers={"If-None-Match": etag}).status_code == 304  # revalidar es barato
+
+
+def test_every_element_the_script_looks_up_exists_in_the_page():
+    """El JS busca elementos por id: si el HTML cambia y un id desaparece, la página se rompe en el navegador."""
+    js = (STATIC / "app.js").read_text(encoding="utf-8")
+    html = (STATIC / "index.html").read_text(encoding="utf-8")
+    ids_used = set(re.findall(r'\$\("([\w-]+)"\)', js)) | set(re.findall(r'getElementById\("([\w-]+)"\)', js))
+    ids_present = set(re.findall(r'id="([\w-]+)"', html))
+    assert ids_used - ids_present == set()
+
+
 def test_frontend_never_renders_server_text_as_html():
     """Lo que escribe el modelo se pinta con textContent: una respuesta maliciosa no puede inyectar código."""
     js = (STATIC / "app.js").read_text(encoding="utf-8")

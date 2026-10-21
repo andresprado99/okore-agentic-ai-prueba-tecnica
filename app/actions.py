@@ -52,6 +52,9 @@ class ActionManager:
         claim = call(self._services.claims, trace, "GET", f"/api/claims/{claim_id}")
         if document not in claim.get("missing_documents", []):
             return {"error": f"El documento {document} no figura como pendiente en {claim_id}. No se propone ninguna acción."}
+        if document in claim.get("requested_documents", []):
+            return {"error": f"El documento {document} de {claim_id} ya se solicitó al taller y está pendiente de recibir. "
+                             "No se vuelve a pedir; no se propone ninguna acción."}
         workshop = call(self._services.workshops, trace, "GET", f"/api/workshops/{claim['workshop_id']}")
         if workshop.get("status") != "ACTIVE" or not workshop.get("channels"):
             return {"error": f"El taller {claim['workshop_id']} no está disponible para recibir solicitudes."}
@@ -102,6 +105,9 @@ class ActionManager:
         if p.document not in claim.get("missing_documents", []):
             p.status = "CANCELLED"
             return {"ok": False, "status": p.status, "message": "El expediente ha cambiado: el documento ya no figura como pendiente. Acción cancelada."}
+        if p.document in claim.get("requested_documents", []):  # otra propuesta se ejecutó mientras tanto
+            p.status = "CANCELLED"
+            return {"ok": False, "status": p.status, "message": "El documento ya se solicitó al taller mientras tanto. Acción cancelada para no duplicarla."}
 
         p.status = "EXECUTING"  # bloquea reentradas antes de llamar a la API
         try:

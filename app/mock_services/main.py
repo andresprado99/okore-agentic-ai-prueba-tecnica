@@ -30,6 +30,7 @@ from app.mock_services.db import add_event, init_db, reset_db
 SETTINGS = load_settings()
 FAULTS: dict[str, dict] = {}
 IDEMPOTENCY: dict[str, dict] = {}
+REQUESTED: set[tuple[str, str]] = set()  # (expediente, documento) ya solicitados al taller y aún sin recibir
 
 
 @asynccontextmanager
@@ -87,6 +88,7 @@ async def clear_faults():
 async def reset():
     FAULTS.clear()
     IDEMPOTENCY.clear()
+    REQUESTED.clear()
     reset_db(SETTINGS.db_path)
     return {"reset": True}
 
@@ -103,7 +105,8 @@ async def get_claim(claim_id: str):
     claim = CLAIMS.get(claim_id)
     if claim is None:
         raise HTTPException(status_code=404, detail="Expediente no encontrado")
-    return claim
+    # Campo añadido a la respuesta de ejemplo del enunciado: documentos ya pedidos al taller y pendientes de recibir.
+    return {**claim, "requested_documents": sorted(d for c, d in REQUESTED if c == claim_id)}
 
 
 @app.get("/api/workshops/{workshop_id}")
@@ -135,6 +138,9 @@ async def post_action(claim_id: str, body: ActionIn, idempotency_key: str | None
     else:
         if body.document not in claim["missing_documents"]:
             raise HTTPException(status_code=409, detail=f"El documento {body.document} no está pendiente")
+        if (claim_id, body.document) in REQUESTED:  # regla de negocio en el sistema de registro, no solo en el agente
+            raise HTTPException(status_code=409, detail=f"El documento {body.document} ya se ha solicitado y está pendiente de recibir")
+        REQUESTED.add((claim_id, body.document))
         add_event(SETTINGS.db_path, claim_id, "DOCUMENT_REQUESTED", f"Solicitado al taller el documento {body.document}")
         result = {"status": "ACCEPTED", "action_id": f"ACT-{len(IDEMPOTENCY) + 1:04d}", "claim_id": claim_id, "replayed": False}
         IDEMPOTENCY[idempotency_key] = result

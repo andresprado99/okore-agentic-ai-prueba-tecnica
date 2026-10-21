@@ -12,14 +12,17 @@ const EXAMPLES = [
   ["Sin permiso", "Dame el estado del expediente EXP-20000"],
 ];
 
-const DEMO = [
-  ["Talleres caídos (500)", "workshops_down"],
-  ["Talleres lentos (15 s)", "workshops_slow"],
-  ["Expedientes caídos", "claims_down"],
-  ["Acción: se ejecuta y se pierde la respuesta (1 vez)", "actions_lost_once"],
-  ["Acción: nunca responde", "actions_lost_always"],
-  ["Quitar fallos", "clear"],
-  ["Restaurar datos", "reset"],
+// [texto del botón, preajuste, ayuda (tooltip), mensaje al terminar]
+const DEMO_FAULTS = [
+  ["Talleres caídos (500)", "workshops_down", "El servicio de talleres responde error 500 siempre"],
+  ["Talleres lentos (15 s)", "workshops_slow", "El servicio de talleres tarda 15 s en responder (el agente se rinde antes)"],
+  ["Expedientes caídos", "claims_down", "El servicio de expedientes responde error 500 siempre"],
+  ["Acción: se ejecuta y se pierde la respuesta (1 vez)", "actions_lost_once", "La API ejecuta la acción pero falla al responder una vez: el reintento la recupera sin duplicar"],
+  ["Acción: nunca responde", "actions_lost_always", "La API ejecuta la acción pero siempre falla al responder: el resultado queda UNKNOWN"],
+];
+const DEMO_UTILS = [
+  ["Quitar fallos", "clear", "Quita los fallos activos. Conserva los datos y las solicitudes ya hechas", "Fallos quitados."],
+  ["Restaurar datos", "reset", "Quita los fallos y restaura los datos iniciales: solicitudes pendientes e histórico", "Datos restaurados."],
 ];
 
 const DECISION_CLASS = {
@@ -148,12 +151,24 @@ form.addEventListener("submit", (event) => {
   sendMessage(text);
 });
 
-async function refreshFaults() {
+async function refreshFaults(prefix = "") {
   try {
     const faults = await api("/api/demo/faults");
     const active = Object.entries(faults).map(([service, f]) => `${service}: ${f.mode}${f.remaining ? ` (${f.remaining} vez)` : ""}`);
-    $("demo-status").textContent = active.length ? `Fallos activos → ${active.join(" · ")}` : "Sin fallos activos.";
+    $("demo-status").textContent = `${prefix} ${active.length ? `Fallos activos → ${active.join(" · ")}` : "Sin fallos activos."}`.trim();
   } catch (err) { $("demo-status").textContent = `No se pudo consultar: ${err.message}`; }
+}
+
+function addDemoButton(container, label, preset, help, doneMessage = "") {
+  const btn = el("button", "", label);
+  btn.type = "button";
+  btn.title = help;                    // ayuda al pasar el ratón
+  btn.setAttribute("aria-label", label);  // el nombre accesible es el texto visible; el título solo es ayuda
+  btn.addEventListener("click", async () => {
+    try { await api(`/api/demo/${preset}`, { method: "POST" }); } catch (err) { $("demo-status").textContent = `Error: ${err.message}`; return; }
+    refreshFaults(doneMessage);
+  });
+  container.appendChild(btn);
 }
 
 async function init() {
@@ -173,15 +188,8 @@ async function init() {
 
   if (cfg.demo_controls) {
     $("demo").hidden = false;
-    DEMO.forEach(([label, preset]) => {
-      const btn = el("button", "", label);
-      btn.type = "button";
-      btn.addEventListener("click", async () => {
-        try { await api(`/api/demo/${preset}`, { method: "POST" }); } catch (err) { $("demo-status").textContent = `Error: ${err.message}`; return; }
-        refreshFaults();
-      });
-      $("demo-buttons").appendChild(btn);
-    });
+    DEMO_FAULTS.forEach(([label, preset, help]) => addDemoButton($("demo-faults"), label, preset, help));
+    DEMO_UTILS.forEach(([label, preset, help, done]) => addDemoButton($("demo-utils"), label, preset, help, done));
     refreshFaults();
   }
 

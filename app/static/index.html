@@ -36,8 +36,17 @@
 
     <details id="demo" hidden>
       <summary>Panel de demostración · provocar fallos en los servicios simulados</summary>
-      <div id="demo-buttons" class="demo-buttons"></div>
-      <p id="demo-status" class="demo-status"></p>
+      <div class="demo-grid">
+        <div>
+          <p class="demo-title">Provocar fallos</p>
+          <div id="demo-faults" class="demo-buttons"></div>
+        </div>
+        <div>
+          <p class="demo-title">Utilidades</p>
+          <div id="demo-utils" class="demo-buttons demo-utils"></div>
+        </div>
+      </div>
+      <p id="demo-status" class="demo-status" role="status"></p>
     </details>
   </main>
 

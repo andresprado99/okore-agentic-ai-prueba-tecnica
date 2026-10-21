@@ -57,6 +57,9 @@ def create_app(agent: Agent, settings: Settings, llm_name: str, demo_controls: b
         response = await call_next(request)
         response.headers["Content-Security-Policy"] = "default-src 'self'; frame-ancestors 'none'"  # sin scripts en línea ni externos
         response.headers["X-Content-Type-Options"] = "nosniff"
+        # Sin esto, el navegador puede reutilizar un app.js o un index.html antiguos (caché heurística) y mezclarlos con los nuevos.
+        # "no-cache" no significa "no guardar": obliga a preguntar al servidor si el archivo cambió (ETag) antes de usarlo.
+        response.headers["Cache-Control"] = "no-cache"
         return response
 
     def get_user(user_id: str) -> User:

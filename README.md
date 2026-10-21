@@ -125,15 +125,31 @@ python -m app.web --llm mock
 
 Abre <http://127.0.0.1:8000>. Un solo comando: arranca también los servicios simulados. La página tiene un selector de
 usuario (`ana` puede modificar, `luis` solo consulta), botones con un ejemplo de cada caso, una tarjeta de **Confirmar /
-Cancelar** para las acciones, un enlace **Ver traza** en cada respuesta y un **panel de demostración** para provocar
-fallos (talleres caídos, servicio lento, "la acción se ejecuta pero se pierde la respuesta"...) sin tocar la terminal.
+Cancelar** para las acciones, un enlace **Ver traza** en cada respuesta y un **panel de demostración** (desplegable
+de abajo) para provocar fallos sin tocar la terminal. El panel tiene dos bloques:
 
-Para usar un LLM real en lugar del simulado (necesita `.env`, ver abajo): `python -m app.web`.
+| Bloque | Botones | Qué hacen |
+|---|---|---|
+| **Provocar fallos** | Talleres caídos (500) · Talleres lentos (15 s) · Expedientes caídos | El servicio responde error 500 siempre, o tarda 15 s (el agente se rinde antes) |
+| | Acción: se ejecuta y se pierde la respuesta (1 vez) | La API ejecuta la acción y falla al responder una vez; el reintento la recupera sin duplicar |
+| | Acción: nunca responde | La API ejecuta la acción y siempre falla al responder: el resultado queda `UNKNOWN` |
+| **Utilidades** (verdes) | **Quitar fallos** | Quita los fallos activos. Conserva los datos y las solicitudes ya hechas |
+| | **Restaurar datos** | Quita los fallos **y** restaura los datos iniciales: solicitudes pendientes e histórico. Es lo que permite repetir una demo (una vez pedido un documento, no se puede volver a pedir hasta restaurar) |
+
+Debajo de los botones, una línea de estado indica qué fallos hay activos. Equivale a `faultctl clear` y `faultctl reset`
+de la terminal (ver [Provocar fallos](#provocar-fallos-caso-3)).
+
+> **Qué es `--llm mock`.** Es un asistente simulado con reglas fijas, **no un modelo de lenguaje**: sirve para ver la
+> arquitectura (permisos, confirmación, fallos, traza) sin clave. Por eso responde al instante y siempre igual, y solo
+> entiende las peticiones de los ejemplos. En la cabecera de la página se ve `LLM: mock`.
+
+Para usar un **LLM real** en lugar del simulado (necesita `.env`, ver abajo), lanza lo mismo sin `--llm mock`:
+`python -m app.web`. Las respuestas tardarán un par de segundos y podrán variar de redacción.
 
 ### Por línea de comandos, sin clave de API (modo mock)
 
 ```bash
-python -m pytest                       # 91 pruebas; no necesitan clave ni red
+python -m pytest                       # 100 pruebas; no necesitan clave ni red
 python -m app.mock_services            # terminal 1: servicios simulados (se queda en ejecución)
 python -m app.cli --llm mock           # terminal 2: caso 2, con confirmación
 ```
@@ -207,7 +223,7 @@ se deduce de las tools usadas, no se pregunta al LLM. Los resultados de las tool
 
 ## Tests
 
-`python -m pytest`: 91 pruebas, menos de un minuto. Levantan el servidor FastAPI de verdad en un hilo (con base de datos y traza
+`python -m pytest`: 100 pruebas, menos de un minuto. Levantan el servidor FastAPI de verdad en un hilo (con base de datos y traza
 temporales) y usan LLMs simulados, así que no necesitan clave ni red. Un archivo por caso (`tests/test_case1_query.py` …
 `test_case4_security.py`) más `tests/test_guard.py` y `tests/test_web.py` (la interfaz web). Los fallos se provocan con el protocolo HTTP real (500, lentitud,
 respuesta perdida), no con mocks de Python.
@@ -231,8 +247,11 @@ No miden la **calidad** de un LLM real: eso requeriría una evaluación aparte (
 - **El filtro de entrada se esquiva con paráfrasis** (hay un test que lo documenta). Por eso no es la defensa principal.
 - **La comprobación de salida solo cubre identificadores** (expedientes, talleres, matrículas, DNI, emails), no un estado
   o una fecha inventados.
-- **`UNKNOWN` no se resuelve solo.** Si una acción acaba sin respuesta, hace falta reconciliar a mano; el histórico no
-  guarda la clave de idempotencia, así que no se puede deducir si se ejecutó.
+- **`UNKNOWN` no se cierra solo.** Si una acción acaba sin respuesta, el sistema no la da por hecha ni la repite. Sí se
+  puede comprobar a mano: el expediente muestra en `requested_documents` lo ya solicitado (y el agente no lo vuelve a
+  pedir). Lo que falta es un proceso que lo concilie automáticamente y que guarde la clave de idempotencia en el histórico.
+- **No se pide dos veces el mismo documento.** Mientras una solicitud esté pendiente de recibir, el agente no propone otra y
+  la API de acciones responde 409. En la simulación nada marca un documento como "recibido": se restaura con `reset`.
 - **Un rechazo hecho por el propio LLM** (p. ej. al `viewer` que pide una acción) queda en la traza como `ANSWERED`, porque
   el modelo respondió sin llamar a ninguna tool.
 - **LLM real probado a mano, no automáticamente.** Los tests usan modelos simulados. La prueba con OpenAI (`gpt-4.1-mini`)
@@ -281,7 +300,7 @@ app/                    solución
   cli.py  web.py  bootstrap.py   puntos de entrada (consola y web) y montaje común
   static/               página de la interfaz web (HTML, CSS y JS sin dependencias)
   mock_services/        servicios simulados (FastAPI + SQLite) y faultctl
-tests/                  91 pruebas, un archivo por caso
+tests/                  100 pruebas, un archivo por caso
 docs/                   arquitectura.md (esquemas)
 learning/               scripts de aprendizaje paso a paso (no forman parte de la solución)
 .env.example            plantilla de configuración (el .env real no se sube)
